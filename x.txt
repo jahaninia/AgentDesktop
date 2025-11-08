@@ -1,0 +1,280 @@
+// package x
+
+// import (
+// 	"encoding/json"
+// 	"fmt"
+// 	"log"
+// 	"os"
+// 	"os/exec"
+// 	"time"
+
+// 	"github.com/getlantern/systray"
+// 	"github.com/r3labs/sse/v2"
+// )
+
+// // Event ساختار رویداد دریافتی از سرور
+// type Event struct {
+// 	Type    string `json:"type"`    // نوع رویداد: "open_url", "notification", etc.
+// 	URL     string `json:"url"`     // لینک برای باز کردن
+// 	Message string `json:"message"` // پیام نوتیفیکیشن
+// 	Title   string `json:"title"`   // عنوان نوتیفیکیشن
+// }
+
+// // App ساختار اصلی برنامه
+// type App struct {
+// 	sseClient     *sse.Client
+// 	serverURL     string
+// 	isConnected   bool
+// 	menuConnected *systray.MenuItem
+// 	menuStatus    *systray.MenuItem
+// 	stopChan      chan bool
+// }
+
+// func main2() {
+// 	// تنظیم لاگ
+// 	logFile, err := os.OpenFile("sse_tray.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+// 	if err == nil {
+// 		log.SetOutput(logFile)
+// 		defer logFile.Close()
+// 	}
+
+// 	log.Println("برنامه در حال شروع...")
+// 	systray.Run(onReady, onExit)
+// }
+
+// func onReady() {
+// 	app := &App{
+// 		serverURL: "http://localhost:8080/events", // آدرس سرور SSE
+// 		stopChan:  make(chan bool),
+// 	}
+
+// 	// تنظیم آیکون و عنوان
+// 	systray.SetIcon(getIcon())
+// 	systray.SetTitle("SSE Client")
+// 	systray.SetTooltip("SSE Client - در حال اتصال...")
+
+// 	// ایجاد منوها
+// 	app.menuStatus = systray.AddMenuItem("وضعیت: در حال اتصال...", "وضعیت فعلی")
+// 	app.menuStatus.Disable()
+
+// 	systray.AddSeparator()
+
+// 	app.menuConnected = systray.AddMenuItem("🔴 قطع شده", "وضعیت اتصال")
+// 	app.menuConnected.Disable()
+
+// 	mReconnect := systray.AddMenuItem("اتصال مجدد", "اتصال مجدد به سرور")
+// 	mSettings := systray.AddMenuItem("تنظیمات", "تنظیمات برنامه")
+
+// 	systray.AddSeparator()
+
+// 	mAbout := systray.AddMenuItem("درباره", "درباره برنامه")
+// 	mQuit := systray.AddMenuItem("خروج", "خروج از برنامه")
+
+// 	// شروع اتصال SSE
+// 	go app.connectSSE()
+
+// 	// مدیریت کلیک‌های منو
+// 	go func() {
+// 		for {
+// 			select {
+// 			case <-mReconnect.ClickedCh:
+// 				log.Println("درخواست اتصال مجدد...")
+// 				app.reconnect()
+
+// 			case <-mSettings.ClickedCh:
+// 				log.Println("باز کردن تنظیمات...")
+// 				openBrowser("http://localhost:8080/settings")
+
+// 			case <-mAbout.ClickedCh:
+// 				log.Println("درباره برنامه")
+// 				app.showAbout()
+
+// 			case <-mQuit.ClickedCh:
+// 				log.Println("خروج از برنامه...")
+// 				app.stopChan <- true
+// 				systray.Quit()
+// 				return
+// 			}
+// 		}
+// 	}()
+// }
+
+// func onExit() {
+// 	log.Println("برنامه بسته شد")
+// }
+
+// // connectSSE اتصال به سرور SSE
+// func (app *App) connectSSE() {
+// 	for {
+// 		select {
+// 		case <-app.stopChan:
+// 			log.Println("اتصال SSE متوقف شد")
+// 			return
+// 		default:
+// 			app.tryConnect()
+// 		}
+// 	}
+// }
+
+// // tryConnect تلاش برای اتصال
+// func (app *App) tryConnect() {
+// 	log.Printf("در حال اتصال به %s...\n", app.serverURL)
+// 	app.updateStatus("در حال اتصال...", false)
+
+// 	// ایجاد کلاینت SSE
+// 	app.sseClient = sse.NewClient(app.serverURL)
+
+// 	// تنظیمات اتصال
+// 	// app.sseClient.ReconnectStrategy = &sse.BackoffStrategy{
+// 	// 	MinRetryInterval: 1 * time.Second,
+// 	// 	MaxRetryInterval: 30 * time.Second,
+// 	// }
+
+// 	// Subscribe به رویدادها
+// 	err := app.sseClient.SubscribeRaw(func(msg *sse.Event) {
+// 		app.handleEvent(msg)
+// 	})
+
+// 	if err != nil {
+// 		log.Printf("خطا در اتصال: %v\n", err)
+// 		app.updateStatus("خطا در اتصال", false)
+// 		time.Sleep(5 * time.Second)
+// 		return
+// 	}
+// }
+
+// // handleEvent پردازش رویدادهای دریافتی
+// func (app *App) handleEvent(msg *sse.Event) {
+// 	// اولین رویداد موفق یعنی متصل شدیم
+// 	if !app.isConnected {
+// 		app.updateStatus("متصل", true)
+// 		log.Println("✅ اتصال برقرار شد")
+// 	}
+
+// 	log.Printf("رویداد دریافت شد - نوع: %s\n", string(msg.Event))
+// 	log.Printf("داده: %s\n", string(msg.Data))
+
+// 	// Parse کردن JSON
+// 	var event Event
+// 	err := json.Unmarshal(msg.Data, &event)
+// 	if err != nil {
+// 		log.Printf("خطا در Parse رویداد: %v\n", err)
+// 		return
+// 	}
+
+// 	// پردازش بر اساس نوع رویداد
+// 	switch event.Type {
+// 	case "open_url":
+// 		app.handleOpenURL(event)
+
+// 	case "notification":
+// 		app.handleNotification(event)
+
+// 	case "ping":
+// 		log.Println("💓 Ping دریافت شد")
+
+// 	default:
+// 		log.Printf("نوع رویداد ناشناخته: %s\n", event.Type)
+// 	}
+// }
+
+// // handleOpenURL باز کردن URL در مرورگر
+// func (app *App) handleOpenURL(event Event) {
+// 	if event.URL == "" {
+// 		log.Println("⚠️ URL خالی است")
+// 		return
+// 	}
+
+// 	log.Printf("🌐 باز کردن URL: %s\n", event.URL)
+
+// 	err := openBrowser(event.URL)
+// 	if err != nil {
+// 		log.Printf("❌ خطا در باز کردن URL: %v\n", err)
+// 		app.showNotification("خطا", fmt.Sprintf("نتوانستم لینک را باز کنم: %s", event.URL))
+// 	} else {
+// 		log.Println("✅ لینک با موفقیت باز شد")
+// 		if event.Title != "" {
+// 			app.showNotification(event.Title, "لینک در مرورگر باز شد")
+// 		}
+// 	}
+// }
+
+// // handleNotification نمایش نوتیفیکیشن
+// func (app *App) handleNotification(event Event) {
+// 	log.Printf("🔔 نوتیفیکیشن: %s - %s\n", event.Title, event.Message)
+// 	app.showNotification(event.Title, event.Message)
+// }
+
+// // openBrowser باز کردن لینک در مرورگر پیش‌فرض
+// func openBrowser(url string) error {
+// 	return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+// }
+
+// // updateStatus به‌روزرسانی وضعیت در منو
+// func (app *App) updateStatus(status string, connected bool) {
+// 	app.isConnected = connected
+
+// 	emoji := "🔴"
+// 	if connected {
+// 		emoji = "🟢"
+// 	}
+
+// 	app.menuStatus.SetTitle(fmt.Sprintf("وضعیت: %s", status))
+// 	app.menuConnected.SetTitle(fmt.Sprintf("%s %s", emoji, status))
+
+// 	tooltip := fmt.Sprintf("SSE Client - %s", status)
+// 	systray.SetTooltip(tooltip)
+// }
+
+// // showNotification نمایش نوتیفیکیشن
+// func (app *App) showNotification(title, message string) {
+// 	tooltip := fmt.Sprintf("%s: %s", title, message)
+// 	systray.SetTooltip(tooltip)
+// 	log.Printf("📬 Notification: %s - %s\n", title, message)
+
+// 	// برای نوتیفیکیشن واقعی ویندوز می‌توانید از toast استفاده کنید
+// 	// go get github.com/go-toast/toast
+// }
+
+// // reconnect اتصال مجدد
+// func (app *App) reconnect() {
+// 	if app.sseClient != nil {
+// 		app.sseClient.Unsubscribe(make(chan *sse.Event))
+// 	}
+// 	app.isConnected = false
+// 	go app.connectSSE()
+// }
+
+// // showAbout نمایش اطلاعات درباره
+// func (app *App) showAbout() {
+// 	log.Println("=== SSE Tray Client ===")
+// 	log.Println("Version: 1.0.0")
+// 	log.Printf("Server: %s\n", app.serverURL)
+// 	log.Println("======================")
+// }
+
+// // getIcon آیکون پیش‌فرض
+// func getIcon() []byte {
+// 	//file
+// 	icon,_:=os.ReadFile("icons8-windows-tray-32.png")
+// 	return icon
+// 	یک آیکون ساده 16x16 PNG
+// 	return []byte{
+// 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+// 		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+// 		0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10,
+// 		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0xf3, 0xff,
+// 		0x61, 0x00, 0x00, 0x00, 0x19, 0x74, 0x45, 0x58,
+// 		0x74, 0x53, 0x6f, 0x66, 0x74, 0x77, 0x61, 0x72,
+// 		0x65, 0x00, 0x41, 0x64, 0x6f, 0x62, 0x65, 0x20,
+// 		0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x61,
+// 		0x64, 0x79, 0x71, 0xc9, 0x65, 0x3c, 0x00, 0x00,
+// 		0x00, 0x18, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda,
+// 		0x62, 0xfc, 0xff, 0xff, 0x3f, 0x03, 0x25, 0x00,
+// 		0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x00, 0x0a,
+// 		0x3b, 0x00, 0x01, 0x9b, 0x5d, 0x74, 0x2e, 0x00,
+// 		0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+// 		0x42, 0x60, 0x82,
+// 	}
+//  }
+

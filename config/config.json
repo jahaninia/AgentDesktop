@@ -1,0 +1,9 @@
+{
+"popup": "http://google.com",
+"fields":[],
+"url": "http://192.168.97.116:8001",
+"extension": "149",
+"agent": "0",
+ "token": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+ "debug":true
+}
